@@ -9,22 +9,23 @@ Gradient-Domain Path Tracing / Gradient-Domain Bidirectional Path Tracing
   colors between neighboring pixels), in addition to the standard noisy
   color images. This is done by variations of standard unidirectional and
   bidirectional path tracing as described in the aforementioned papers. They
-  then solve for the final image that best matches the sampled gradients
-  and colors, typically resulting in much less noise.
+  then solve a screened Poisson problem to find the image that best matches
+  the sampled gradients and colors. This typically results in much less
+  noise.
   
   The algorithms use the same path sampling machinery as their
-  corresponding standard methods, but in addition estimate the
-  differences to neighboring pixels in a way that typically produces
-  little noise. Using the same path sampling machinery means that if the
-  corresponding non-gradient method is absolutely terrible for a given
-  scene, making it gradient-domain probably won't be enough to save the
-  day. But, assuming you have a scene for which the basic method works,
-  making it gradient-domain method may save you very much time.
+  corresponding standard methods, but in addition estimate the differences
+  to neighboring pixels in a way that typically produces little noise. Using
+  the same path sampling machinery means that if the corresponding
+  non-gradient method is absolutely terrible for a given scene, making
+  it gradient-domain probably won't be enough to save the day. But, as we
+  demonstrate in the papers, assuming that you have a scene for which the
+  basic method works, making it gradient-domain often saves very much time.
   
   As described in the papers, the L2 reconstructions are unbiased, but
   sometimes show annoying dipole artifacts. We recommend the slightly
   biased L1 reconstruction in most cases, as the L1 images are generally
-  visually much nicer and the bias will go away rather quickly.
+  visually much nicer and the bias tends to go away rather quickly.
   
   
   By default, reconstructing the final images from the sampled data is
@@ -33,7 +34,8 @@ Gradient-Domain Path Tracing / Gradient-Domain Bidirectional Path Tracing
   
   
   The code was implemented and tested using Visual C++ 2013 (with update 4)
-  and CUDA Toolkit 6.5. Linux and Mac OS X support might require more work.
+  and CUDA Toolkit 6.5 and 7.0. Linux and Mac OS X support might require
+  more work.
   
   The integrator implementations are released under the same license
   as the rest of Mitsuba. The screened Poisson reconstruction code from
@@ -80,11 +82,11 @@ Features, Gradient-Domain Path Tracing (G-PT):
 Features, Gradient-Domain Bidirectional Path Tracing (G-BDPT):
 --------------------------------------------------------------
   This implementation supports diffuse, specular and glossy materials. It
-  also supports area and point lights, depth-of-field, motion blur and
-  low discrepancy samplers. Note that currently only the box pixel
-  filter is supported. The final image shown in the GUI is the L1
-  reconstruction. However, the L2 reconstruction, the primal image and
-  the gradient images are also written to disk.
+  also supports area and point lights, depth-of-field, motion blur and low
+  discrepancy samplers. Note that currently only the box pixel filter is
+  supported. When rendering has finished, the implementation will solve and
+  show the L1 reconstruction in the GUI. However, the L2 reconstruction,
+  the primal image and the gradient images are also written to disk.
   
   Note that it is still an experimental implementation that hasn't been
   tested with all of Mitsuba's features. Notably there is no support yet
@@ -179,7 +181,10 @@ Faster reconstruction on the GPU:
 License Information:
 --------------------
 
-For completeness, here is the license for the screened Poisson reconstruction code.
+  All source code files contain their licensing information.
+  
+  Most notably, unlike Mitsuba code, the screened Poisson reconstruction
+    code is NOT covered by GNU GPL 3, but the following license:
 
   Copyright (c) 2015, NVIDIA CORPORATION. All rights reserved.
 
@@ -204,66 +209,3 @@ For completeness, here is the license for the screened Poisson reconstruction co
   ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
----
-
-  A modification of BackendOpenMP.cpp (part of the screened Poisson solver)
-    by Markus Kettunen includes code based on sample code from MSDN. See
-    the file for details.
-  The sample code is licensed under the following license:
-
-  Microsoft Limited Public License (Ms-LPL)
-  
-  This license governs use of the accompanying software. If you use the
-    software, you accept this license. If you do not accept the license,
-    do not use the software.
-  
-  1. Definitions
-  
-  The terms "reproduce," "reproduction," "derivative works," and
-    "distribution" have the same meaning here as under U.S. copyright
-    law. A "contribution" is the original software, or any additions
-    or changes to the software. A "contributor" is any person that
-    distributes its contribution under this license. "Licensed patents" are
-    a contributor's patent claims that read directly on its contribution.
-  
-  2. Grant of Rights
-  
-  (A) Copyright Grant- Subject to the terms of this license, including the
-    license conditions and limitations in section 3, each contributor
-    grants you a non-exclusive, worldwide, royalty-free copyright
-    license to reproduce its contribution, prepare derivative works of
-    its contribution, and distribute its contribution or any derivative
-    works that you create.
-  (B) Patent Grant- Subject to the terms of this license, including the
-    license conditions and limitations in section 3, each contributor
-    grants you a non-exclusive, worldwide, royalty-free license under
-    its licensed patents to make, have made, use, sell, offer for sale,
-    import, and/or otherwise dispose of its contribution in the software
-    or derivative works of the contribution in the software.
-  
-  3. Conditions and Limitations
-  
-  (A) No Trademark License- This license does not grant you rights to
-    use any contributors' name, logo, or trademarks.
-  (B) If you bring a patent claim against any contributor over patents
-    that you claim are infringed by the software, your patent license
-    from such contributor to the software ends automatically.
-  (C) If you distribute any portion of the software, you must retain
-    all copyright, patent, trademark, and attribution notices that are
-    present in the software.
-  (D) If you distribute any portion of the software in source code form,
-    you may do so only under this license by including a complete copy of
-    this license with your distribution. If you distribute any portion
-    of the software in compiled or object code form, you may only do so
-    under a license that complies with this license.
-  (E) The software is licensed "as-is." You bear the risk of using it. The
-    contributors give no express warranties, guarantees, or conditions. You
-    may have additional consumer rights under your local laws which this
-    license cannot change. To the extent permitted under your local laws,
-    the contributors exclude the implied warranties of merchantability,
-    fitness for a particular purpose and non-infringement.
-  
-  4. (F) Platform Limitation- The licenses granted in sections 2(A) &
-    2(B) extend only to the software or derivative works that you create
-    that run on a Microsoft Windows operating system product.
