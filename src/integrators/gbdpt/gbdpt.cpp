@@ -24,17 +24,32 @@
 
 MTS_NAMESPACE_BEGIN
 
-/*!\plugin{gbdpt}{Gradient-domain bidirectional path tracer}
+/*!\plugin{gbdpt}{Gradient-Domain Bidirectional path tracer}
  * \order{5}
  * \parameters{
- *	   \parameter{lightImage}{\Boolean}{Analogous to the lightImage-parameter in BDPT. If an image contains caustic paths it is generally a good idea to activate this. If enabled, using small block-sizes will slow down the rendering process massively. \default{\code{true}}}
-
+ *     \parameter{maxDepth}{\Integer}{Specifies the longest path depth
+ *         in the generated output image (where \code{-1} corresponds to $\infty$).
+ *	       A value of \code{1} will only render directly visible light sources.
+ *	       \code{2} will lead to single-bounce (direct-only) illumination,
+ *	       and so on. \default{\code{-1}}
+ *	   }
+ *	   \parameter{lightImage}{\Boolean}{Include sampling strategies that connect
+ *	      paths traced from emitters directly to the camera? (i.e. what \pluginref{ptracer} does)
+ *	      This improves the effectiveness of bidirectional path tracing
+ *	      but severely increases the local and remote communication
+ *	      overhead, since large \emph{light images} must be transferred between threads
+ *	      or over the network. See the text below for a more detailed explanation.
+ *	      \default{include these strategies, i.e. \code{true}}
+ *     }
+ *	   \parameter{rrDepth}{\Integer}{Specifies the minimum path depth, after
+ *	      which the implementation will start to use the ``russian roulette''
+ *	      path termination criterion. \default{\code{5}}
+ *	   }
  *	   \parameter{reconstructL1}{\Boolean}{If set, the rendering method reconstructs the final image using a reconstruction method
- *           that efficiently kills many image artifacts. The reconstruction is slightly biased, but the bias will go away by increasing sample count. 
- *			 Note that this only affects the shown reconstruction in the GUI, the other reconstruciton type is still written to disc.\default{\code{true}}
+ *           that efficiently kills many image artifacts. The reconstruction is slightly biased, but the bias will go away by increasing sample count. \default{\code{true}}
  *     }
  *	   \parameter{reconstructL2}{\Boolean}{If set, the rendering method reconstructs the final image using a reconstruction method that is unbiased,
- *			but sometimes introduces severe dipole artifacts.  Note that this only affects the shown reconstruction in the GUI, the other reconstruciton type is still written to disc.\default{\code{false}}
+ *			but sometimes introduces severe dipole artifacts. \default{\code{false}}
  *     }
  *	   \parameter{shiftThreshold}{\Float}{Specifies the roughness threshold for classifying materials as 'diffuse', in contrast to 'specular',
  *			for the purposes of constructing paths pairs for estimating pixel differences. This value should usually be somewhere between 0.0005 and 0.01.
@@ -54,10 +69,8 @@ MTS_NAMESPACE_BEGIN
  * implementation that hasn't been tested with all of Mitsubas features.
  * Notably there is no support yet for any kind of participating media or pixel filters 
  * beside the box filter. Also smart sampling of the direct illumination is not 
- * implemented (i.e. no sampleDirect option as in BDPT).
- * G-BDPT only works with \pluginref{multifilm} since multiple output files are generated. 
- * Namely G-BDPT generates 7 images: the primal image, 4 gradient images, the unbiasec reconstructed image using the L2 norm and the biased reconstruction using the L1 norm.
- * Note that in the GUI MultiFilm is automatically 
+ * implemented (i.e. no sampleDirect option as in BDPT). G-BDPT only works with \pluginref{multifilm}
+ * since multiple output files are generated. Note that in the GUI MultiFilm is automatically 
  * chosen if G-BDPT is selected.
  *
  */

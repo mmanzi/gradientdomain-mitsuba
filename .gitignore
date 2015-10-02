@@ -6,6 +6,7 @@ doc/*.out
 doc/*.toc
 doc/*.bbl
 doc/*.blg
+doc/main.pdf
 doc/plugins_generated.tex
 
 # Build-related
