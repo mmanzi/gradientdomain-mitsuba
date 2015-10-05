@@ -178,6 +178,13 @@ Faster reconstruction on the GPU:
     the project home page of Gradient-Domain Path Tracing.
 
 
+Change log:
+-----------
+
+  2015/10/05: Fix handling of specular materials in G-PT. Fixes glitches
+    in scenes Bottle and MatPreview.
+
+
 License Information:
 --------------------
 
