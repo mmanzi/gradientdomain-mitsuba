@@ -140,8 +140,7 @@ struct RayState {
 		  pdf(1.0f),
 		  throughput(Spectrum(0.0f)),
 		  alive(true),
-		  connection_status(RAY_NOT_CONNECTED),
-		  vertex_type(VERTEX_TYPE_DIFFUSE)
+		  connection_status(RAY_NOT_CONNECTED)
 	{}
 
 	/// Adds radiance to the ray.
@@ -171,30 +170,10 @@ struct RayState {
 	bool alive;                      ///< Whether the path matching to the ray is still good. Otherwise it's an invalid offset path with zero PDF and throughput.
 
 	RayConnection connection_status; ///< Whether the ray has been connected to the base path, or is in progress.
-
-	VertexType vertex_type;          ///< Vertex type of current vertex.
-	VertexType previous_vertex_type; ///< Vertex type of previous vertex.
 };
 
-
-/// Returns the lowest roughness value of a BSDF. Used for classifying vertices.
-Float getLowestRoughness(RayState& ray) {
-	const BSDF* bsdf = ray.rRec.its.getBSDF(ray.ray);
-	
-	Float lowest_roughness = std::numeric_limits<Float>::max();
-
-	for(int i = 0, component_count = bsdf->getComponentCount(); i < component_count; ++i) {
-		Float component_roughness = bsdf->getRoughness(ray.rRec.its, i);
-		if(component_roughness < lowest_roughness) {
-			lowest_roughness = component_roughness;
-		}
-	}
-
-	return lowest_roughness;
-}
-
 /// Returns the vertex type of a vertex by its roughness value.
-VertexType getVertexType(Float roughness, const GradientPathTracerConfig& config) {
+VertexType getVertexTypeByRoughness(Float roughness, const GradientPathTracerConfig& config) {
 	if(roughness <= config.m_shiftThreshold) {
 		return VERTEX_TYPE_GLOSSY;
 	} else {
@@ -202,12 +181,40 @@ VertexType getVertexType(Float roughness, const GradientPathTracerConfig& config
 	}
 }
 
-/// Updates the vertex type of a ray from the BSDFs.
-void updateVertexType(RayState& ray, const GradientPathTracerConfig& config) {
-	// Note: Could perhaps use roughness of the material that the base path used, instead of just the lowest roughness.
+/// Returns the vertex type (diffuse / glossy) of a vertex, for the purposes of determining
+/// the shifting strategy.
+///
+/// A bare classification by roughness alone is not good for multi-component BSDFs since they
+/// may contain a diffuse component and a perfect specular component. If the base path
+/// is currently working with a sample from a BSDF's smooth component, we don't want to care
+/// about the specular component of the BSDF right now - we want to deal with the smooth component.
+///
+/// For this reason, we vary the classification a little bit based on the situation.
+/// This is perfectly valid, and should be done.
+VertexType getVertexType(const BSDF* bsdf, Intersection& its, const GradientPathTracerConfig& config, unsigned int bsdfType) {
+	// Return the lowest roughness value of the components of the vertex's BSDF.
+	// If 'bsdfType' does not have a delta component, do not take perfect speculars (zero roughness) into account in this.
 
-	ray.previous_vertex_type = ray.vertex_type;
-	ray.vertex_type = getVertexType(getLowestRoughness(ray), config);
+	Float lowest_roughness = std::numeric_limits<Float>::infinity();
+
+	for(int i = 0, component_count = bsdf->getComponentCount(); i < component_count; ++i) {
+		Float component_roughness = bsdf->getRoughness(its, i);
+
+		if(!(bsdfType & BSDF::EDelta) && component_roughness == Float(0)) {
+			continue;
+		}
+
+		if(component_roughness < lowest_roughness) {
+			lowest_roughness = component_roughness;
+		}
+	}
+
+	return getVertexTypeByRoughness(lowest_roughness, config);
+}
+
+VertexType getVertexType(RayState& ray, const GradientPathTracerConfig& config, unsigned int bsdfType) {
+	const BSDF* bsdf = ray.rRec.its.getBSDF(ray.ray);
+	return getVertexType(bsdf, ray.rRec.its, config, bsdfType);
 }
 
 
@@ -508,14 +515,14 @@ public:
 		}
 
 		// Update the vertex classifications.
-		updateVertexType(main, *m_config);
-
-		for(int i = 0; i < secondaryCount; ++i) {
-			RayState& shifted = shiftedRays[i];
-			if(shifted.alive) {
-				updateVertexType(shifted, *m_config);
-			}
-		}
+		//updateVertexType(main, *m_config);
+		//
+		//for(int i = 0; i < secondaryCount; ++i) {
+		//	RayState& shifted = shiftedRays[i];
+		//	if(shifted.alive) {
+		//		updateVertexType(shifted, *m_config);
+		//	}
+		//}
 
 
 		// Main path tracing loop.
@@ -552,7 +559,7 @@ public:
 			{
 				const BSDF* mainBSDF = main.rRec.its.getBSDF(main.ray);
 
-				if (main.rRec.type & RadianceQueryRecord::EDirectSurfaceRadiance && (mainBSDF->getType() & BSDF::ESmooth) && main.rRec.depth + 1 >= m_config->m_minDepth) {
+				if (main.rRec.type & RadianceQueryRecord::EDirectSurfaceRadiance && mainBSDF->getType() & BSDF::ESmooth && main.rRec.depth + 1 >= m_config->m_minDepth) {
 					// Sample an emitter and evaluate f = f/p * p for it. */
 					DirectSamplingRecord dRec(main.rRec.its);
 
@@ -590,7 +597,6 @@ public:
 					main.addRadiance(main.throughput * (mainBSDFValue * mainEmitterRadiance), mainWeightNumerator / (D_EPSILON + mainWeightDenominator));
 #endif
 
-
 					// Strict normals check to produce the same results as bidirectional methods when normal mapping is used.
 					if(!m_config->m_strictNormals || dot(main.rRec.its.geoFrame.n, dRec.d) * Frame::cosTheta(mainBRec.wo) > 0) {
 						// The base path is good. Add radiance differences to offset paths.
@@ -605,7 +611,7 @@ public:
 							bool shiftSuccessful = shifted.alive;
 
 							// Construct the offset path.
-							if(shifted.alive) {
+							if(shiftSuccessful) {
 								// Generate the offset path.
 								if(shifted.connection_status == RAY_CONNECTED) {
 									// Follow the base path. All relevant vertices are shared. 
@@ -649,12 +655,15 @@ public:
 									SAssert(shifted.connection_status == RAY_NOT_CONNECTED);
 
 									const BSDF* shiftedBSDF = shifted.rRec.its.getBSDF(shifted.ray);
-									if(!(shiftedBSDF->getType() & BSDF::ESmooth)) {
-										// Base path on non-specular and offset path on specular. Make the shift fail.
-										shiftSuccessful = false;
-									} else  {
-										// Always use the reconnection shift in next event estimation.
 
+									// This implementation uses light sampling only for the reconnect-shift.
+									// When one of the BSDFs is very glossy, light sampling essentially reduces to a failed shift anyway.
+									bool mainAtPointLight = (dRec.measure == EDiscrete);
+
+									VertexType mainVertexType = getVertexType(main, *m_config, BSDF::ESmooth);
+									VertexType shiftedVertexType = getVertexType(shifted, *m_config, BSDF::ESmooth);
+
+									if(mainAtPointLight || (mainVertexType == VERTEX_TYPE_DIFFUSE && shiftedVertexType == VERTEX_TYPE_DIFFUSE)) {
 										// Get emitter radiance.
 										DirectSamplingRecord shiftedDRec(shifted.rRec.its);
 										std::pair<Spectrum, bool> emitterTuple = m_scene->sampleEmitterDirectVisible(shiftedDRec, lightSample);
@@ -744,6 +753,11 @@ public:
 			DirectSamplingRecord mainDRec(main.rRec.its);
 			const BSDF* mainBSDF = main.rRec.its.getBSDF(main.ray);
 
+
+			// Update the vertex types.
+			VertexType mainVertexType = getVertexType(main, *m_config, mainBsdfResult.bRec.sampledType);
+			VertexType mainNextVertexType;
+
 			main.ray = Ray(main.rRec.its.p, mainWo, main.ray.time);
 			
 			if (scene->rayIntersect(main.ray, main.rRec.its)) {
@@ -761,7 +775,7 @@ public:
 				}
 
 				// Update the vertex type.
-				updateVertexType(main, *m_config);
+				mainNextVertexType = getVertexType(main, *m_config, mainBsdfResult.bRec.sampledType);
 			} else {
 				// Intersected nothing -- perhaps there is an environment map?
 				const Emitter *env = scene->getEnvironmentEmitter();
@@ -774,8 +788,9 @@ public:
 					mainHitEmitter = true;
 
 					// Handle environment connection as diffuse (that's ~infinitely far away).
-					main.previous_vertex_type = main.vertex_type;
-					main.vertex_type = VERTEX_TYPE_DIFFUSE;
+
+					// Update the vertex type.
+					mainNextVertexType = VERTEX_TYPE_DIFFUSE;
 				} else {
 					// Nothing to do anymore.
 					break;
@@ -870,7 +885,10 @@ public:
 
 						const BSDF* shiftedBSDF = shifted.rRec.its.getBSDF(shifted.ray);
 
-						if(main.vertex_type == VERTEX_TYPE_DIFFUSE && main.previous_vertex_type == VERTEX_TYPE_DIFFUSE && shifted.vertex_type == VERTEX_TYPE_DIFFUSE) {
+						// Update the vertex type of the offset path.
+						VertexType shiftedVertexType = getVertexType(shifted, *m_config, mainBsdfResult.bRec.sampledType);
+
+						if(mainVertexType == VERTEX_TYPE_DIFFUSE && mainNextVertexType == VERTEX_TYPE_DIFFUSE && shiftedVertexType == VERTEX_TYPE_DIFFUSE) {
 							// Use reconnection shift.
 
 							// Optimization: Skip the last raycast and BSDF evaluation for the offset path when it won't contribute and isn't needed anymore.
@@ -908,10 +926,8 @@ public:
 								}
 
 								// Evaluate the BRDF to the new direction.
-								EMeasure measure = (shiftedBSDF->getType() & BSDF::EDelta) ? EDiscrete : ESolidAngle;
-
-								Spectrum shiftedBsdfValue = shiftedBSDF->eval(bRec, measure);
-								Float shiftedBsdfPdf = shiftedBSDF->pdf(bRec, measure);
+								Spectrum shiftedBsdfValue = shiftedBSDF->eval(bRec);
+								Float shiftedBsdfPdf = shiftedBSDF->pdf(bRec);
 
 								// Update throughput and pdf.
 								shifted.throughput *= shiftedBsdfValue * shiftResult.jacobian;
@@ -944,7 +960,7 @@ public:
 											shiftedLumPdf = scene->pdfEmitterDirect(shiftedDRec);
 										}
 
-										// Sub-surface scattering. Note: Should use the same random numbers as the main path!
+										// Sub-surface scattering. Note: Should use the same random numbers as the base path!
 										if (main.rRec.its.hasSubsurface() && (main.rRec.type & RadianceQueryRecord::ESubsurfaceRadiance)) {
 											shiftedEmitterRadiance += main.rRec.its.LoSub(scene, shifted.rRec.sampler, -outgoingDirection, main.rRec.depth);
 										}
@@ -967,8 +983,6 @@ public:
 							Vector3 tangentSpaceIncomingDirection = shifted.rRec.its.toLocal(-shifted.ray.d);
 							Vector3 tangentSpaceOutgoingDirection;
 							Spectrum shiftedEmitterRadiance(Float(0));
-							Float shiftedLumPdf = Float(0);
-							Float shiftedBsdfPdf = Float(0);
 
 							const BSDF* shiftedBSDF = shifted.rRec.its.getBSDF(shifted.ray);
 
@@ -977,7 +991,7 @@ public:
 							bool bothSmooth = (mainBsdfResult.bRec.sampledType & BSDF::ESmooth) && (shiftedBSDF->getType() & BSDF::ESmooth);
 							if(!(bothDelta || bothSmooth)) {
 								shifted.alive = false;
-								goto shift_failed;
+								goto half_vector_shift_failed;
 							}
 
 							SAssert(fabs(shifted.ray.d.lengthSquared() - 1) < 0.000001);
@@ -998,7 +1012,7 @@ public:
 							} else {
 								// The shift is non-invertible so kill it.
 								shifted.alive = false;
-								goto shift_failed;
+								goto half_vector_shift_failed;
 							}
 
 							Vector3 outgoingDirection = shifted.rRec.its.toWorld(tangentSpaceOutgoingDirection);
@@ -1007,25 +1021,26 @@ public:
 							BSDFSamplingRecord bRec(shifted.rRec.its, tangentSpaceIncomingDirection, tangentSpaceOutgoingDirection, ERadiance);
 							EMeasure measure = (mainBsdfResult.bRec.sampledType & BSDF::EDelta) ? EDiscrete : ESolidAngle;
 
-							shiftedBsdfPdf = shiftedBSDF->pdf(bRec, measure);
-
 							shifted.throughput *= shiftedBSDF->eval(bRec, measure);
-							shifted.pdf *= shiftedBsdfPdf;
+							shifted.pdf *= shiftedBSDF->pdf(bRec, measure);
 
 							if(shifted.pdf == Float(0)) {
 								// Offset path is invalid!
 								shifted.alive = false;
-								goto shift_failed;
+								goto half_vector_shift_failed;
 							}
 
 							// Strict normals check to produce the same results as bidirectional methods when normal mapping is used.			
 							if(m_config->m_strictNormals && dot(outgoingDirection, shifted.rRec.its.geoFrame.n) * Frame::cosTheta(bRec.wo) <= 0) {
 								shifted.alive = false;
-								goto shift_failed;
+								goto half_vector_shift_failed;
 							}
 
-							// Trace the next hit point.
 
+							// Update the vertex type.
+							VertexType shiftedVertexType = getVertexType(shifted, *m_config, mainBsdfResult.bRec.sampledType);
+
+							// Trace the next hit point.
 							shifted.ray = Ray(shifted.rRec.its.p, outgoingDirection, main.ray.time);
 
 							if(!scene->rayIntersect(shifted.ray, shifted.rRec.its)) {
@@ -1034,66 +1049,58 @@ public:
 								if(env) {
 									// The offset path is no longer valid after this path segment.
 									shiftedEmitterRadiance = env->evalEnvironment(shifted.ray);
-
-									// Get light sampling PDF.
-									if(shiftedBSDF->getType() & BSDF::ESmooth) {
-										DirectSamplingRecord shiftedDRec;
-										env->fillDirectSamplingRecord(shiftedDRec, shifted.ray);
-										shiftedLumPdf = scene->pdfEmitterDirect(shiftedDRec);
-									}
-
 									postponedShiftEnd = true;
 								} else {
 									// Since base paths that hit nothing are not shifted, we must be symmetric
 									// and fail shifts that hit nothing.
 									shifted.alive = false;
-									goto shift_failed;
+									goto half_vector_shift_failed;
 								}
 							} else {
 								// Hit something.
 
+								VertexType shiftedNextVertexType = getVertexType(shifted, *m_config, mainBsdfResult.bRec.sampledType);
+
 								// Make sure that the reverse shift would use this same strategy!
 								// ==============================================================
-								VertexType shifted_new_vertex_type = getVertexType(getLowestRoughness(shifted), *m_config);
 
-								if(main.previous_vertex_type == VERTEX_TYPE_DIFFUSE && shifted.vertex_type == VERTEX_TYPE_DIFFUSE &&
-									shifted_new_vertex_type == VERTEX_TYPE_DIFFUSE)
-								{
+								if(mainVertexType == VERTEX_TYPE_DIFFUSE && shiftedVertexType == VERTEX_TYPE_DIFFUSE && shiftedNextVertexType == VERTEX_TYPE_DIFFUSE) {
 									// Non-invertible shift: the reverse-shift would use another strategy!
 									shifted.alive = false;
-									goto shift_failed;
+									goto half_vector_shift_failed;
 								}
 
 								if(shifted.rRec.its.isEmitter()) {
 									// Hit emitter.
 									shiftedEmitterRadiance = shifted.rRec.its.Le(-shifted.ray.d);
-
-									// Get light sampling PDF.
-									if((shiftedBSDF->getType() & BSDF::ESmooth) && !(mainBsdfResult.bRec.sampledType & BSDF::EDelta)) {
-										DirectSamplingRecord shiftedDRec;
-										shiftedDRec.p = shifted.rRec.its.p;
-										shiftedDRec.n = shifted.rRec.its.shFrame.n;
-										shiftedDRec.dist = (shifted.ray.o - shifted.rRec.its.p).length();
-										shiftedDRec.d = (shifted.ray.o - shifted.rRec.its.p) / shiftedDRec.dist;
-										shiftedDRec.ref = shiftedDRec.p;
-										shiftedDRec.refN = shifted.rRec.its.shFrame.n;
-										shiftedDRec.object = shifted.rRec.its.shape->getEmitter();
-
-										shiftedLumPdf = scene->pdfEmitterDirect(shiftedDRec);
-									}
 								}
-								// Sub-surface scattering. Note: Should use the same random numbers as the main path!
+								// Sub-surface scattering. Note: Should use the same random numbers as the base path!
 								if (shifted.rRec.its.hasSubsurface() && (shifted.rRec.type & RadianceQueryRecord::ESubsurfaceRadiance)) {
 									shiftedEmitterRadiance += shifted.rRec.its.LoSub(scene, shifted.rRec.sampler, -shifted.ray.d, main.rRec.depth);
 								}
 							}
 
-							// Power heuristic between light sample from base, BSDF sample from base, light sample from offset, BSDF sample from offset.
-							Float shiftedWeightDenominator = (shiftedPreviousPdf * shiftedPreviousPdf) * ((shiftedLumPdf * shiftedLumPdf) + (shiftedBsdfPdf * shiftedBsdfPdf));
-							weight = mainWeightNumerator / (D_EPSILON + shiftedWeightDenominator + mainWeightDenominator);
+							
+half_vector_shift_failed:
+							if(shifted.alive) {
+								// Evaluate radiance difference using power heuristic between BSDF samples from base and offset paths.
+								// Note: No MIS with light sampling since we don't use it for this connection type.
+								weight = main.pdf / (shifted.pdf * shifted.pdf + main.pdf * main.pdf);
+								mainContribution = main.throughput * mainEmitterRadiance;
+								shiftedContribution = shifted.throughput * shiftedEmitterRadiance; // Note: Jacobian baked into .throughput.
+							} else {
+								// Handle the failure without taking MIS with light sampling, as we decided not to use it in the half-vector-duplication case.
+								// Could have used it, but so far there has been no need. It doesn't seem to be very useful.
+								weight = Float(1) / main.pdf;
+								mainContribution = main.throughput * mainEmitterRadiance;
+								shiftedContribution = Spectrum(Float(0));
 
-							mainContribution = main.throughput * mainEmitterRadiance;
-							shiftedContribution = shifted.throughput * shiftedEmitterRadiance; // Note: Jacobian baked into .throughput.
+								// Disable the failure detection below since the failure was already handled.
+								shifted.alive = true;
+								postponedShiftEnd = true;
+
+								// (TODO: Restructure into smaller functions and get rid of the gotos... Although this may mean having lots of small functions with a large number of parameters.)
+							}
 						}
 					}
 				}
@@ -1105,7 +1112,6 @@ shift_failed:
 					mainContribution = main.throughput * mainEmitterRadiance;
 					shiftedContribution = Spectrum((Float)0);
 				}
-				
 				
 				// Note: Using also the offset paths for the throughput estimate, like we do here, provides some advantage when a large reconstruction alpha is used,
 				// but using only throughputs of the base paths doesn't usually lose by much.
@@ -1119,14 +1125,6 @@ shift_failed:
 
 				if(postponedShiftEnd) {
 					shifted.alive = false;
-				}
-			}
-
-			// Update vertex types.
-			for(int i = 0; i < secondaryCount; ++i) {
-				RayState& shifted = shiftedRays[i];
-				if(shifted.alive) {
-					updateVertexType(shifted, *m_config);
 				}
 			}
 

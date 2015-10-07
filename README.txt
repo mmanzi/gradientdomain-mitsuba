@@ -173,14 +173,16 @@ Faster reconstruction on the GPU:
     'gradientdomain_dependencies_DEFAULT.zip', overwrite any files when
     prompted and rebuild the solution.
   
-  The CUDA reconstuction library is compiled for win x64 using VC++2013. To
-    rebuild the CUDA reconstruction library, get the source release from
-    the project home page of Gradient-Domain Path Tracing.
+  The CUDA reconstruction library is compiled for win x64 using
+    VC++2013. To rebuild the CUDA reconstruction library, get the source
+    release from the project home page of Gradient-Domain Path Tracing.
 
 
 Change log:
 -----------
 
+  2015/10/06: Improve G-PT's vertex classification for multi-component
+    materials.
   2015/10/05: Fix handling of specular materials in G-PT. Fixes glitches
     in scenes Bottle and MatPreview.
 
