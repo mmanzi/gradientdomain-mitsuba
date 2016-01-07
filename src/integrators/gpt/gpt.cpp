@@ -197,16 +197,29 @@ VertexType getVertexType(const BSDF* bsdf, Intersection& its, const GradientPath
 
 	Float lowest_roughness = std::numeric_limits<Float>::infinity();
 
+	bool found_smooth = false;
+	bool found_dirac = false;
 	for(int i = 0, component_count = bsdf->getComponentCount(); i < component_count; ++i) {
 		Float component_roughness = bsdf->getRoughness(its, i);
 
-		if(!(bsdfType & BSDF::EDelta) && component_roughness == Float(0)) {
-			continue;
+		if(component_roughness == Float(0)) {
+			found_dirac = true;
+			if(!(bsdfType & BSDF::EDelta)) {
+				// Skip Dirac components if a smooth component is requested.
+				continue;
+			}
+		} else {
+			found_smooth = true;
 		}
 
 		if(component_roughness < lowest_roughness) {
 			lowest_roughness = component_roughness;
 		}
+	}
+
+	// Roughness has to be zero also if there is a delta component but no smooth components.
+	if(!found_smooth && found_dirac && !(bsdfType & BSDF::EDelta)) {
+        lowest_roughness = Float(0);
 	}
 
 	return getVertexTypeByRoughness(lowest_roughness, config);
@@ -513,16 +526,6 @@ public:
 				}
 			}
 		}
-
-		// Update the vertex classifications.
-		//updateVertexType(main, *m_config);
-		//
-		//for(int i = 0; i < secondaryCount; ++i) {
-		//	RayState& shifted = shiftedRays[i];
-		//	if(shifted.alive) {
-		//		updateVertexType(shifted, *m_config);
-		//	}
-		//}
 
 
 		// Main path tracing loop.
@@ -979,7 +982,7 @@ public:
 								}
 							}
 						} else {
-							// Use half-vector duplication shift.
+							// Use half-vector duplication shift. These paths could not have been sampled by light sampling (by our decision).
 							Vector3 tangentSpaceIncomingDirection = shifted.rRec.its.toLocal(-shifted.ray.d);
 							Vector3 tangentSpaceOutgoingDirection;
 							Spectrum shiftedEmitterRadiance(Float(0));
@@ -1046,18 +1049,34 @@ public:
 							if(!scene->rayIntersect(shifted.ray, shifted.rRec.its)) {
 								// Hit nothing - Evaluate environment radiance.
 								const Emitter *env = scene->getEnvironmentEmitter();
-								if(env) {
-									// The offset path is no longer valid after this path segment.
-									shiftedEmitterRadiance = env->evalEnvironment(shifted.ray);
-									postponedShiftEnd = true;
-								} else {
-									// Since base paths that hit nothing are not shifted, we must be symmetric
-									// and fail shifts that hit nothing.
+								if(!env) {
+									// Since base paths that hit nothing are not shifted, we must be symmetric and kill shifts that hit nothing.
 									shifted.alive = false;
 									goto half_vector_shift_failed;
 								}
+								if(main.rRec.its.isValid()) {
+									// Deny shifts between env and non-env.
+									shifted.alive = false;
+									goto half_vector_shift_failed;
+								}
+
+								if(mainVertexType == VERTEX_TYPE_DIFFUSE && shiftedVertexType == VERTEX_TYPE_DIFFUSE) {
+									// Environment reconnection shift would have been used for the reverse direction!
+									shifted.alive = false;
+									goto half_vector_shift_failed;
+								}
+
+								// The offset path is no longer valid after this path segment.
+								shiftedEmitterRadiance = env->evalEnvironment(shifted.ray);
+								postponedShiftEnd = true;
 							} else {
 								// Hit something.
+								
+								if(!main.rRec.its.isValid()) {
+									// Deny shifts between env and non-env.
+									shifted.alive = false;
+									goto half_vector_shift_failed;
+								}
 
 								VertexType shiftedNextVertexType = getVertexType(shifted, *m_config, mainBsdfResult.bRec.sampledType);
 
