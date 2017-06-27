@@ -1188,6 +1188,10 @@ private:
 GradientPathIntegrator::GradientPathIntegrator(const Properties &props)
 	: MonteCarloIntegrator(props)
 {
+	m_config.m_maxDepth = props.getInteger("maxDepth", -1);
+	m_config.m_minDepth = props.getInteger("minDepth", -1);
+	m_config.m_rrDepth = props.getInteger("rrDepth", 5);
+	m_config.m_strictNormals = props.getBoolean("strictNormals", false);
 	m_config.m_shiftThreshold = props.getFloat("shiftThreshold", Float(0.001));
 	m_config.m_reconstructL1 = props.getBoolean("reconstructL1", true);
 	m_config.m_reconstructL2 = props.getBoolean("reconstructL2", false);
@@ -1198,15 +1202,15 @@ GradientPathIntegrator::GradientPathIntegrator(const Properties &props)
 
 	if(m_config.m_reconstructAlpha <= 0.0f)
 		Log(EError, "'reconstructAlpha' must be set to a value greater than zero!");
+
+	if (m_config.m_maxDepth < -1)
+		Log(EError, "'maxDepth' must be set to -1 (infinite) or a value greater than zero!");
 }
 
 GradientPathIntegrator::GradientPathIntegrator(Stream *stream, InstanceManager *manager)
 	: MonteCarloIntegrator(stream, manager)
 {
-	m_config.m_shiftThreshold = stream->readFloat();
-	m_config.m_reconstructL1 = stream->readBool();
-	m_config.m_reconstructL2 = stream->readBool();
-	m_config.m_reconstructAlpha = stream->readFloat();
+	m_config = GradientPathTracerConfig(stream);
 }
 
 
@@ -1657,10 +1661,7 @@ Spectrum GradientPathIntegrator::Li(const RayDifferential &r, RadianceQueryRecor
 
 void GradientPathIntegrator::serialize(Stream *stream, InstanceManager *manager) const {
 	MonteCarloIntegrator::serialize(stream, manager);
-	stream->writeFloat(m_config.m_shiftThreshold);
-	stream->writeBool(m_config.m_reconstructL1);
-	stream->writeBool(m_config.m_reconstructL2);
-	stream->writeFloat(m_config.m_reconstructAlpha);
+	m_config.serialize(stream);
 }
 
 std::string GradientPathIntegrator::toString() const {
