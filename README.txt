@@ -180,7 +180,7 @@ Faster reconstruction on the GPU:
 
 Change log:
 -----------
-  2017/06/27: Improve G-PT's config serialization. Fixes network
+  2017/06/28: Improve G-PT's config serialization. Fixes network
     rendering.
   2015/12/18: Fix vertex classification for perfectly specular material
     components.

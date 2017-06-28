@@ -1203,7 +1203,7 @@ GradientPathIntegrator::GradientPathIntegrator(const Properties &props)
 	if(m_config.m_reconstructAlpha <= 0.0f)
 		Log(EError, "'reconstructAlpha' must be set to a value greater than zero!");
 
-	if (m_config.m_maxDepth < -1)
+	if (m_config.m_maxDepth <= 0 && m_config.m_maxDepth != -1)
 		Log(EError, "'maxDepth' must be set to -1 (infinite) or a value greater than zero!");
 }
 
