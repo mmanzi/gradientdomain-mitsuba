@@ -41,6 +41,30 @@ struct GradientPathTracerConfig {
 	bool m_reconstructL1;
 	bool m_reconstructL2;
 	Float m_reconstructAlpha;
+	
+	inline GradientPathTracerConfig() { }
+	
+	inline GradientPathTracerConfig(Stream *stream) {
+		m_maxDepth = stream->readInt();
+		m_minDepth = stream->readInt();
+		m_rrDepth = stream->readInt();
+		m_strictNormals = stream->readBool();
+		m_shiftThreshold = stream->readFloat();
+		m_reconstructL1 = stream->readBool();
+		m_reconstructL2 = stream->readBool();
+		m_reconstructAlpha = stream->readFloat();
+	}
+	
+	inline void serialize(Stream *stream) const {
+		stream->writeInt(m_maxDepth);
+		stream->writeInt(m_minDepth);
+		stream->writeInt(m_rrDepth);
+		stream->writeBool(m_strictNormals);
+		stream->writeFloat(m_shiftThreshold);
+		stream->writeBool(m_reconstructL1);
+		stream->writeBool(m_reconstructL2);
+		stream->writeFloat(m_reconstructAlpha);
+	}
 };
 
 
