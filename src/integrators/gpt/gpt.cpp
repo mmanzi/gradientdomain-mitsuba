@@ -351,8 +351,11 @@ ReconnectionShiftResult environmentShift(const Scene* scene, const Ray& mainRay,
 	ReconnectionShiftResult result;
 
 	// Check visibility of the environment.
-	if(!testEnvironmentVisibility(scene, mainRay)) {
-		// Sampled by BSDF so cannot accept occlusion.
+	Ray offsetRay = mainRay;
+	offsetRay.setOrigin(shiftSourceVertex);
+
+	if(!testEnvironmentVisibility(scene, offsetRay)) {
+		// Environment was occluded.
 		result.success = false;
 		return result;
 	}
